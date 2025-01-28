@@ -5,15 +5,30 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const PORT = 3500;
+const PORT = process.env.PORT || 3500;
+
+// Log all incoming requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Query:", JSON.stringify(req.query, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  next();
+});
 
 // Basic health check endpoint
 app.get("/", (req, res) => {
-  res.json("hello world!");
+  console.log("[Health Check] Endpoint accessed");
+  res.json({
+    status: "alive",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+  });
 });
 
 // Callback endpoint to handle Cognifit responses
 app.post("/callback", (req, res) => {
+  console.log("[Callback POST] Received request");
   try {
     const {
       status,
@@ -26,45 +41,42 @@ app.post("/callback", (req, res) => {
       user_token,
     } = req.body;
 
-    // Log the received data
-    console.log("Received callback data:", {
+    console.log("[Callback POST] Processed data:", {
       status,
-      tasks,
-      tasksDone,
-      trainings,
-      trainingsDone,
-      assessments,
-      assessmentsDone,
-      user_token,
+      taskCount: tasks?.length,
+      tasksDoneCount: tasksDone?.length,
+      trainingCount: trainings?.length,
+      trainingsDoneCount: trainingsDone?.length,
+      assessmentCount: assessments?.length,
+      assessmentsDoneCount: assessmentsDone?.length,
+      hasUserToken: !!user_token,
     });
 
     // Handle different status cases
     switch (status) {
       case "completed":
-        // Handle completed status
+        console.log("[Callback POST] Completed status received");
         return res.status(200).json({
           success: true,
           message: "Tasks completed successfully",
-          data: { status, tasksDone, trainingsDone, assessmentsDone },
         });
 
       case "aborted":
-        // Handle aborted status
+        console.log("[Callback POST] Aborted status received");
         return res.status(200).json({
           success: true,
           message: "Session aborted",
-          data: { status, tasksDone, trainingsDone, assessmentsDone },
         });
 
       case "loginError":
-        // Handle login error
+        console.log("[Callback POST] Login error status received");
         return res.status(401).json({
           success: false,
           message: "Login error occurred",
-          error: "Authentication failed",
         });
 
       default:
+        console.log("[Callback POST] Unknown status received:", status);
         return res.status(400).json({
           success: false,
           message: "Unknown status received",
@@ -72,7 +84,7 @@ app.post("/callback", (req, res) => {
         });
     }
   } catch (error) {
-    console.error("Error processing callback:", error);
+    console.error("[Callback POST] Error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -81,13 +93,13 @@ app.post("/callback", (req, res) => {
   }
 });
 
-// Also handle GET requests for the callback URL
+// Handle GET requests for the callback URL
 app.get("/callback", (req, res) => {
+  console.log("[Callback GET] Received request");
   try {
     const queryParams = req.query;
-    console.log("Received GET callback with params:", queryParams);
+    console.log("[Callback GET] Query parameters:", queryParams);
 
-    // Handle the query parameters similarly to POST
     const {
       status,
       tasks,
@@ -99,7 +111,12 @@ app.get("/callback", (req, res) => {
       user_token,
     } = queryParams;
 
-    // Similar status handling as POST
+    // Log the processed data
+    console.log("[Callback GET] Processed data:", {
+      status,
+      hasUserToken: !!user_token,
+    });
+
     switch (status) {
       case "completed":
       case "aborted":
@@ -117,7 +134,7 @@ app.get("/callback", (req, res) => {
         });
     }
   } catch (error) {
-    console.error("Error processing GET callback:", error);
+    console.error("[Callback GET] Error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -126,6 +143,36 @@ app.get("/callback", (req, res) => {
   }
 });
 
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("[Error Middleware]", err);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: err.message,
   });
+});
+
+// For Render deployment
+if (process.env.NODE_ENV === "production") {
+  console.log("[Startup] Starting server in production mode");
+} else {
+  console.log("[Startup] Starting server in development mode");
+}
+
+// Server startup
+const server = app.listen(PORT, () => {
+  console.log(`[Startup] Server is running on port ${PORT}`);
+  console.log(`[Startup] Environment: ${process.env.NODE_ENV}`);
+  console.log(`[Startup] Time: ${new Date().toISOString()}`);
+});
+
+// Handle server shutdown
+process.on("SIGTERM", () => {
+  console.log("[Shutdown] SIGTERM received. Shutting down gracefully");
+  server.close(() => {
+    console.log("[Shutdown] Server closed");
+  });
+});
+
+module.exports = app;
